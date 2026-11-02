@@ -3,15 +3,15 @@
 Uso: .venv/bin/python build_audio.py <script.py> <voz.onnx> <pasta-de-saída> [length-scale]
 
 <script.py> define SCRIPT = [(cena, segundos-extras-no-fim, [frases...]), ...] e pode definir
-LEAD, GAP, SCENE_GAP, PRE (padrões abaixo). Saída: frases/frase-NN.wav, narration.wav, timeline.json.
+LEAD, GAP, SCENE_GAP, PRE (padrões abaixo, com respiros curtos de Reels). length-scale padrão 1.0. Saída: frases/frase-NN.wav, narration.wav, timeline.json.
 """
 import hashlib, json, os, runpy, subprocess, sys, wave
 
 script_path, model, out = sys.argv[1], sys.argv[2], sys.argv[3]
-length = float(sys.argv[4]) if len(sys.argv) > 4 else 1.08
+length = float(sys.argv[4]) if len(sys.argv) > 4 else 1.0
 cfg = runpy.run_path(script_path)
 SCRIPT = cfg["SCRIPT"]
-LEAD, GAP, SCENE_GAP, PRE = (cfg.get(k, d) for k, d in (("LEAD", 0.8), ("GAP", 0.35), ("SCENE_GAP", 0.55), ("PRE", 0.4)))
+LEAD, GAP, SCENE_GAP, PRE = (cfg.get(k, d) for k, d in (("LEAD", 0.3), ("GAP", 0.2), ("SCENE_GAP", 0.3), ("PRE", 0.25)))
 piper = os.path.join(os.path.dirname(sys.executable), "piper")
 cache = os.path.join(out, ".tts-cache"); frases = os.path.join(out, "frases")
 os.makedirs(cache, exist_ok=True); os.makedirs(frases, exist_ok=True)
@@ -22,7 +22,7 @@ def clip(text):
     key = hashlib.sha1(f"{model}|{text}|{length}".encode()).hexdigest()[:16]
     raw, pcm = os.path.join(cache, key + ".wav"), os.path.join(cache, key + ".s16")
     if not os.path.exists(raw):
-        subprocess.run([piper, "-m", model, "-f", raw, "--length-scale", str(length), "--sentence-silence", "0.3"],
+        subprocess.run([piper, "-m", model, "-f", raw, "--length-scale", str(length), "--sentence-silence", "0.15"],
                        input=text.encode(), check=True, capture_output=True)
     if not os.path.exists(pcm):
         trim = "silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.04"

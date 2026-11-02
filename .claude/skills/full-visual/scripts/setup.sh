@@ -2,9 +2,7 @@
 # Prepara uma pasta de trabalho para um vídeo do /full-visual.
 # Uso: setup.sh <pasta-de-trabalho> [voz-piper]   (voz padrão: pt_BR-cadu-medium)
 # Cria: <pasta>/.venv (piper-tts, faster-whisper, numpy), <pasta>/voices/<voz>.onnx,
-#       <pasta>/fonts (Archivo, Source Sans 3, JetBrains Mono em woff2 + fonts.css),
-#       <pasta>/project (projeto Hypit copiado do template, com dependências instaladas),
-#       <pasta>/design.html (ponto de partida do desenho) e instala o executável hypit se faltar.
+#       <pasta>/fonts (Archivo, Source Sans 3, JetBrains Mono + fonts.css) e <pasta>/design.html.
 set -euo pipefail
 WORK="${1:?informe a pasta de trabalho}"
 VOICE="${2:-pt_BR-cadu-medium}"
@@ -13,6 +11,9 @@ mkdir -p "$WORK" && cd "$WORK"
 # Ambientes com proxy de saída: usa o bundle de CA quando existir.
 if [ -f /root/.ccr/ca-bundle.crt ]; then export REQUESTS_CA_BUNDLE=/root/.ccr/ca-bundle.crt SSL_CERT_FILE=/root/.ccr/ca-bundle.crt; fi
 CURL=(curl -sSL --fail); [ -n "${SSL_CERT_FILE:-}" ] && CURL+=(--cacert "$SSL_CERT_FILE")
+
+for tool in ffmpeg ffprobe node; do command -v $tool >/dev/null || { echo "falta $tool"; exit 1; }; done
+node -e "require('playwright')" 2>/dev/null || echo "AVISO: Playwright não encontrado; rode 'npm i -g playwright && npx playwright install chromium'."
 
 echo "== Python: piper-tts, faster-whisper"
 [ -x .venv/bin/python ] || python3 -m venv .venv
@@ -31,7 +32,7 @@ echo "== Fontes"
 mkdir -p fonts
 if [ ! -s fonts/fonts.css ]; then
   UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-  "${CURL[@]}" -A "$UA" "https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,500..800&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@500&display=block" -o fonts/remote.css
+  "${CURL[@]}" -A "$UA" "https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,500..900&family=Source+Sans+3:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&display=block" -o fonts/remote.css
   .venv/bin/python - <<'EOF'
 import re, subprocess, os
 css = open('fonts/remote.css').read()
@@ -48,12 +49,5 @@ open('fonts/fonts.css', 'w').write('\n'.join(out))
 print(n, 'arquivos de fonte')
 EOF
 fi
-
-echo "== Hypit"
-command -v hypit >/dev/null || npm install --global @hypit/hypit
-if [ ! -d project ]; then
-  cp -r "$SKILL/template" project
-  (cd project && npm install --no-audit --no-fund >/dev/null)
-fi
-[ -f design.html ] || cp "$SKILL/template/design-starter.html" design.html
+[ -f design.html ] || cp "$SKILL/design-starter.html" design.html
 echo "Pronto em $WORK"

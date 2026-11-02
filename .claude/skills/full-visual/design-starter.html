@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>design</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<!--
+  Ponto de partida do desenho de um Reels do /full-visual.
+  - Palco vertical de 720x1280 (renderizado a 1,5x = 1080x1920). window.TL traz as cenas e frases.
+  - window.renderAt(t) recebe segundos e desenha o estado COMPLETO daquele instante (os quadros são
+    renderizados fora de ordem, em paralelo). Nada de setTimeout, animação CSS ou estado acumulado.
+  - Uma camada por cena: <div class="layer scene" id="L-<cena>">, id igual ao do script.py; a seção da
+    cena em renderAt fica protegida por if(S.<cena>).
+  - Zonas: y 0–140 só barra de progresso (o Instagram cobre o topo); conteúdo entre y 150 e 820;
+    legendas entre y 850 e 1010 (já prontas); abaixo de 1030 o app cobre a tela, então não ponha nada importante.
+  - Ritmo de Reels: algo muda a cada 1,5–3 s (palavra-chave, número, seta, zoom). Use wordT() para
+    acertar a entrada no momento em que a palavra é dita. Uma cor fixa por componente do assunto.
+  - Teste: node <skill>/scripts/stills.js design.html <timeline.json> folha.png 1 3 6 ...
+-->
+<style>
+:root{
+  --bg:#0b0d14; --panel:#161a26; --ink:#f4f6fb; --muted:#9aa3b8; --line:#2a3044;
+  --hi:#ffd23f; --a:#ff7a45; --b:#5b8cff; --c:#b47cff; --d:#2fd5b3; --warn:#ff4d6d;
+  --display:"Archivo","Arial Narrow",sans-serif; --body:"Source Sans 3","Liberation Sans",sans-serif; --mono:"JetBrains Mono","DejaVu Sans Mono",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:720px;height:1280px;overflow:hidden;background:var(--bg);color:var(--ink);font-family:var(--body)}
+#stage{position:relative;width:720px;height:1280px;overflow:hidden;background:var(--bg)}
+#blobs{position:absolute;inset:0;overflow:hidden}
+.blob{position:absolute;left:0;top:0;width:760px;height:760px;margin:-380px 0 0 -380px;border-radius:50%}
+#cam{position:absolute;inset:0;transform-origin:50% 40%}
+.layer{position:absolute;inset:0;opacity:0;transform-origin:50% 40%}
+.abs{position:absolute}
+.tag{display:inline-block;font-family:var(--mono);font-weight:700;font-size:20px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--bg);background:var(--hi);padding:6px 14px;border-radius:8px}
+.big{font-family:var(--display);font-weight:900;font-stretch:112%;font-size:92px;line-height:.98;letter-spacing:-.01em}
+.big em{font-style:normal;color:var(--hi)}
+.mid{font-family:var(--display);font-weight:800;font-stretch:108%;font-size:56px;line-height:1.02}
+.card{position:absolute;background:var(--panel);border:2px solid var(--line);border-radius:28px;padding:30px}
+svg text{font-family:var(--body)}
+/* progresso estilo stories */
+#bars{position:absolute;left:24px;right:24px;top:22px;display:flex;gap:6px}
+#bars i{flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,.22);overflow:hidden}
+#bars i b{display:block;height:100%;width:0;background:var(--ink)}
+/* legenda cinética */
+#cap{position:absolute;left:30px;right:30px;top:860px;height:150px;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;
+  gap:4px 14px;text-align:center;font-family:var(--display);font-weight:900;font-stretch:105%;font-size:54px;line-height:1.1}
+#cap span{color:var(--ink);padding:2px 10px;border-radius:12px;text-shadow:0 4px 0 rgba(0,0,0,.55),0 0 18px rgba(0,0,0,.6)}
+#cap span.on{color:var(--bg);background:var(--hi);text-shadow:none}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="blobs"></div>
+  <div id="cam">
+
+    <!-- Exemplo 1: gancho (as primeiras 2 s decidem se a pessoa fica). -->
+    <div class="layer scene" id="L-abertura">
+      <div class="abs" style="left:48px;top:300px;width:624px">
+        <span class="tag" id="hookTag">Em 1 minuto</span>
+        <div class="big" id="hookTitle" style="margin-top:26px">Título que <em>prende</em></div>
+      </div>
+    </div>
+
+    <!-- Exemplo 2: número grande que conta e um cartão que entra na palavra-chave. -->
+    <div class="layer scene" id="L-exemplo">
+      <div class="abs" style="left:48px;top:220px;width:624px;text-align:center">
+        <div class="mid" style="color:var(--muted)">cada quadro dura</div>
+        <div class="big" id="num" style="font-size:180px;color:var(--b)">0</div>
+        <div class="mid">milissegundos</div>
+      </div>
+      <div class="card" id="exCard" style="left:60px;top:660px;width:600px;height:150px;opacity:0">
+        <div class="mid" style="font-size:44px;color:var(--d)">Cartão de apoio</div>
+      </div>
+    </div>
+
+  </div>
+  <div id="bars"></div>
+  <div id="cap"></div>
+</div>
+
+<script>
+const C={bg:'#0b0d14',panel:'#161a26',ink:'#f4f6fb',muted:'#9aa3b8',line:'#2a3044',hi:'#ffd23f',a:'#ff7a45',b:'#5b8cff',c:'#b47cff',d:'#2fd5b3',warn:'#ff4d6d'};
+const clamp=(x,a=0,b=1)=>Math.min(b,Math.max(a,x));
+const lerp=(a,b,u)=>a+(b-a)*u;
+const smooth=u=>{u=clamp(u);return u*u*(3-2*u)};
+const back=u=>{u=clamp(u);const k=1.70158;return 1+(k+1)*Math.pow(u-1,3)+k*Math.pow(u-1,2)}; // entra passando do ponto
+const frac=x=>x-Math.floor(x);
+function kf(t,keys,ease=smooth){if(t<=keys[0][0])return keys[0][1];for(let i=1;i<keys.length;i++){const[t1,v1]=keys[i],[t0,v0]=keys[i-1];if(t<=t1)return lerp(v0,v1,ease((t-t0)/Math.max(1e-6,t1-t0)))}return keys[keys.length-1][1]}
+const $=id=>document.getElementById(id);
+const TLd=window.TL, S={};for(const s of TLd.scenes)S[s.id]=s;
+const sen=(id,i)=>S[id].sentences[i];
+function wordT(id,i,word,lag=.05){const s=sen(id,i),k=s.text.toLowerCase().indexOf(word.toLowerCase());return s.start+(k<0?0:k/s.text.length)*(s.end-s.start)+lag}
+/** Entrada com "pop": escala passando do ponto + subida. Devolve o progresso 0..1. */
+function pop(el,t,at,d=.35,dy=40){const u=clamp((t-at)/d),s=back(u);el.style.opacity=clamp(u*3).toFixed(3);el.style.transform=`translateY(${((1-s)*dy).toFixed(1)}px) scale(${(.85+.15*s).toFixed(3)})`;return u}
+/** Corte de cena: a camada entra com zoom de 1,12 para 1 e sai rápido. */
+function cut(id,t){const sc=S[id],el=$('L-'+id);if(!el)return 0;
+  const a=clamp((t-sc.start)/.2)*clamp((sc.end-t)/.12),z=1.12-.12*smooth((t-sc.start)/.3)+.03*clamp((t-sc.start)/(sc.end-sc.start));
+  el.style.opacity=a.toFixed(3);el.style.visibility=a>0.001?'visible':'hidden';el.style.transform=`scale(${z.toFixed(4)})`;return a}
+
+// Fundo vivo: manchas de cor que se movem devagar.
+// (gradientes radiais em vez de filtro de desfoque: bem mais leves de renderizar)
+$('blobs').innerHTML=[['91,140,255',.30],['180,124,255',.24],['47,213,179',.18]]
+  .map(([c,o])=>`<div class="blob" style="background:radial-gradient(circle,rgba(${c},${o}) 0%,rgba(${c},0) 68%)"></div>`).join('');
+const blobs=[...document.querySelectorAll('.blob')];
+// Barras de progresso, uma por cena.
+$('bars').innerHTML=TLd.scenes.map(()=>'<i><b></b></i>').join('');
+const barFill=[...document.querySelectorAll('#bars b')];
+// Legenda: cada frase em blocos de até 3 palavras; a palavra dita fica destacada.
+const CAP=TLd.scenes.flatMap(sc=>sc.sentences).map(s=>{const out=[];let pos=0,cur=null;const L=s.text.length,D=s.end-s.start;
+  s.text.split(/\s+/).forEach(w=>{const k=s.text.indexOf(w,pos);pos=k+w.length;
+    if(!cur||cur.words.length>=3||cur.len+w.length>16||/[.,:;?!]$/.test(cur.words[cur.words.length-1].w)){cur={words:[],len:0};out.push(cur)}
+    cur.words.push({w,t0:s.start+k/L*D});cur.len+=w.length+1});
+  out.forEach((c,i)=>{c.t0=c.words[0].t0;c.t1=i<out.length-1?out[i+1].t0??out[i+1].words[0].t0:s.end+.25});return out}).flat();
+let capKey=null;
+
+window.renderAt=function(t){
+  // câmera: leve respiração contínua + tranco nas trocas de cena
+  let kick=0;for(const sc of TLd.scenes.slice(1)){const d=t-sc.start;if(d>=0&&d<.25)kick=Math.max(kick,(1-d/.25))}
+  $('cam').style.transform=`scale(${(1+.012*Math.sin(t*1.3)+.03*kick).toFixed(4)}) rotate(${(.4*kick*Math.sin(t*40)).toFixed(3)}deg)`;
+  blobs.forEach((b,i)=>b.style.transform=`translate(${(360+220*Math.sin(t*.35+i*2.1)).toFixed(1)}px,${(560+330*Math.cos(t*.27+i*1.7)).toFixed(1)}px)`);
+
+  if(S.abertura){const sc=S.abertura;if(cut('abertura',t)>0){pop($('hookTag'),t,sc.start+.05,.3);pop($('hookTitle'),t,sc.start+.2,.45,60)}}
+  if(S.exemplo){const sc=S.exemplo;if(cut('exemplo',t)>0){
+    $('num').textContent=String(Math.round(16*smooth((t-sc.start-.2)/.8)));
+    pop($('exCard'),t,sc.sentences[0].start+.8*(sc.sentences[0].end-sc.sentences[0].start))}}
+
+  // legenda e progresso (não mexa)
+  const c=CAP.find(c=>t>=c.t0-.04&&t<c.t1),cap=$('cap');
+  if(!c){cap.innerHTML='';capKey=null}
+  else{if(capKey!==c){cap.innerHTML=c.words.map(w=>`<span>${w.w}</span>`).join('');capKey=c}
+    const u=back(clamp((t-c.t0)/.16));cap.style.transform=`scale(${(.9+.1*u).toFixed(3)})`;
+    [...cap.children].forEach((el,i)=>el.classList.toggle('on',t>=c.words[i].t0&&(i===c.words.length-1||t<c.words[i+1].t0)))}
+  TLd.scenes.forEach((sc,i)=>barFill[i].style.width=(100*clamp((t-sc.start)/(sc.end-sc.start))).toFixed(1)+'%');
+};
+window.READY=document.fonts.ready.then(()=>true);
+</script>
+</body>
+</html>

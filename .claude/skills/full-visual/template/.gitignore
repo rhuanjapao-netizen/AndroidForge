@@ -1,6 +1,0 @@
-node_modules/
-.hypit/
-output/
-packages/scenes/dist/
-packages/scenes/src/template.generated.ts
-assets/
